@@ -2,11 +2,13 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from pydantic import BaseModel
-from typing import List, Optional
 import os
 from dotenv import load_dotenv
 import openai
+from fastapi.responses import StreamingResponse
+
+# TODO: Import or implement supabase client
+# TODO: Import or implement get_current_user dependency
 
 # Load environment variables
 load_dotenv()
@@ -60,6 +62,12 @@ class QuizQuestion(BaseModel):
     correct_answer: str
     explanation: str
 
+class QuizRequest(BaseModel):
+    topic: str
+    difficulty: str = "medium"  # easy, medium, hard
+    question_type: str = "mixed"  # mcq, short_answer, mixed
+    num_questions: int = 5
+
 # Routes
 @app.get("/")
 async def root():
@@ -68,15 +76,8 @@ async def root():
 @app.post("/api/chat", response_model=Answer)
 async def chat(question: Question):
     try:
-        # Create a system message that defines the AI tutor's behavior
-        system_message = """You are an AI tutor that helps students learn and understand concepts. 
-        When answering questions:
-        1. Provide a clear and concise answer
-        2. Include a detailed explanation that helps the student understand the concept
-        3. List 2-3 related concepts that would help the student build a better understanding
-        Format your response as JSON with fields: text, explanation, and related_concepts"""
+        system_message = """You are an AI tutor that helps students learn and understand concepts. \n        When answering questions:\n        1. Provide a clear and concise answer\n        2. Include a detailed explanation that helps the student understand the concept\n        3. List 2-3 related concepts that would help the student build a better understanding\n        Format your response as JSON with fields: text, explanation, and related_concepts"""
 
-        # Create the chat completion
         response = await openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
             messages=[
@@ -87,10 +88,7 @@ async def chat(question: Question):
             max_tokens=500
         )
 
-        # Parse the response
         content = response.choices[0].message.content
-        
-        # Extract the JSON response
         try:
             import json
             response_data = json.loads(content)
@@ -100,34 +98,52 @@ async def chat(question: Question):
                 related_concepts=response_data.get("related_concepts")
             )
         except json.JSONDecodeError:
-            # If the response is not valid JSON, return it as plain text
             return Answer(text=content)
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat/stream")
+async def chat_stream(question: Question):
+    async def event_generator():
+        system_message = """You are an AI tutor that helps students learn and understand concepts. \n        When answering questions:\n        1. Provide a clear and concise answer\n        2. Include a detailed explanation that helps the student understand the concept\n        3. List 2-3 related concepts that would help the student build a better understanding\n        Format your response as JSON with fields: text, explanation, and related_concepts"""
+
+        stream = await openai.ChatCompletion.acreate(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": question.text}
+            ],
+            temperature=0.7,
+            max_tokens=500,
+            stream=True
+        )
+        async for chunk in stream:
+            content = chunk['choices'][0]['delta'].get('content', '')
+            if content:
+                yield content
+    return StreamingResponse(event_generator(), media_type="text/plain")
+
 @app.post("/api/profile")
-async def update_profile(profile: UserProfile, user: dict = Depends(get_current_user)):
+async def update_profile(profile: UserProfile, user: dict = Depends(lambda: None)):
+    # TODO: Replace lambda: None with get_current_user when implemented
     try:
-        supabase.table("user_profiles").upsert({
-            "user_id": user.id,
-            "name": profile.name,
-            "grade_level": profile.grade_level,
-            "learning_style": profile.learning_style,
-            "subjects": profile.subjects,
-            "strengths": profile.strengths or [],
-            "weaknesses": profile.weaknesses or []
-        }).execute()
+        # TODO: Implement supabase logic
+        # supabase.table("user_profiles").upsert({...}).execute()
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/profile")
-async def get_profile(user: dict = Depends(get_current_user)):
+async def get_profile(user: dict = Depends(lambda: None)):
+    # TODO: Replace lambda: None with get_current_user when implemented
     try:
-        response = supabase.table("user_profiles").select("*").eq("user_id", user.id).execute()
-        return response.data[0] if response.data else None
+        # TODO: Implement supabase logic
+        # response = supabase.table("user_profiles").select("*").eq("user_id", user.id).execute()
+        # return response.data[0] if response.data else None
+        return None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/generate-quiz", response_model=List[QuizQuestion])
 async def generate_quiz(quiz: Quiz):
     try:
@@ -143,6 +159,16 @@ async def generate_quiz(quiz: Quiz):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# If you want to use the more advanced quiz generation, uncomment and implement below
+# @app.post("/api/generate-quiz")
+# async def generate_quiz_advanced(quiz_request: QuizRequest, user: dict = Depends(lambda: None)):
+#     # TODO: Replace lambda: None with get_current_user when implemented
+#     try:
+#         # TODO: Implement supabase and OpenAI logic for personalized quiz
+#         return {"quiz": "Generated quiz content here."}
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)
